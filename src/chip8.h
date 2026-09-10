@@ -4,10 +4,7 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
-#include <chrono>
-#include "audio.h"
+
 
 
 struct DebugInfo {
@@ -69,9 +66,7 @@ private:
     // right shifting by second argument number of bits with optional third argument to & first
 
 
-    using Clock = std::chrono::steady_clock;
-    Clock::time_point last_timer_update;
-    ToneGenerator audio;
+    ulong last_timer_update;
 
 
     
@@ -80,12 +75,12 @@ private:
 
 public:
     Chip8(); //constructor
-    bool load_rom(std::string); //returns false if any error occurs while loading
+    bool load_rom(const uint8_t* rom_data, size_t len); //returns false if any error occurs while loading
     bool get_draw_flag();
 
     void set_draw_flag(bool);
 
-    int single_cycle(bool, bool);
+    int single_cycle(bool trace_mode, bool sound_on, bool shift_quirk=false, bool I_quirk=false);
 
     bool get_display_value(int);
     bool* get_display_buffer();
@@ -96,6 +91,7 @@ public:
     void decrease_delay_timer();
     void decrease_sound_timer();
     void reset();
+    void seed_prng();
     DebugInfo& get_debug_info();
     
     uint8_t* get_memory();

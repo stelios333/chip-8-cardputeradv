@@ -2,12 +2,8 @@
 // Created by sarbajit on 5/5/17.
 //
 
-#include <cstring>
-#include <fstream>
-#include <iostream>
-#include <chrono>
+#include <Arduino.h>
 #include "chip8.h"
-#include "audio.h"
 
 //constructor
 Chip8::Chip8()
@@ -40,7 +36,7 @@ void Chip8::reset() {
     //resetting display and keypad
     memset(display, 0, sizeof(display));
     memset(keypad, 0, sizeof(keypad));
-    Clock::time_point last_timer_update = Clock::now();
+    ulong last_timer_update = millis();
 }
 
 DebugInfo& Chip8::get_debug_info() {
@@ -51,25 +47,16 @@ uint8_t* Chip8::get_memory() {
     return memory;
 }
 //function to load ROM, with path to ROM given as argument
-bool Chip8::load_rom(std::string rom_path)
+bool Chip8::load_rom(const uint8_t* rom_data, size_t len)
 {
-    std::ifstream f(rom_path, std::ios::binary | std::ios::in);
-    if (!f.is_open())
-    {
-        return false;
-    }
-    //load in memory from 0x200(512) onwards
-    char c;
+    // load rom in memory at address 0x200
     int j = 512;
-    for (int i = 0x200; f.get(c); ++i)
+    // ensure rom can fit in memory
+    if (len >= 4096-j)
     {
-        if (j >= 4096)
-        {
-            return false; //file size too big memory space over so exit
-        }
-        memory[i] = (uint8_t) c;
-        ++j;
+        return false; 
     }
+    memcpy(memory+j, rom_data, len);
     return true;
 }
 
@@ -127,21 +114,30 @@ bool Chip8::get_paused() {
     return paused;
 }
 
+void Chip8::seed_prng() {
+    srand(time(NULL));
+}
 //emulates one cycle
-int Chip8::single_cycle(bool trace_mode, bool sound_on)
+int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I_quirk)
 {
     if (paused) return 0;
 
     //2 byte opcode
     uint16_t opcode = (memory[pc] << 8) | (memory[pc + 1]);
     uint8_t opcode_msb_nibble = get_nibble(opcode, 12, 0xF000); //if value is ABCD(each 4 bits), it returns A
-    uint8_t val, reg, reg1, reg2, initial_value;
+    uint8_t x_reg = get_nibble(opcode, 8, 0x0F00);
+    uint8_t y_reg = get_nibble(opcode, 4, 0x00F0);
+    uint8_t val, initial_value;
     bool single_bit;
     
 
     if (trace_mode)
     {
-        std::cout << std::format("{:#05x}: {:#04x} {:02x}", pc, memory[pc], memory[pc + 1]) << "\n";
+    
+        Serial.printf("%#05x: %#04x %02x\n",
+              static_cast<unsigned>(pc),
+              static_cast<unsigned>(memory[pc]),
+              static_cast<unsigned>(memory[pc + 1]));
     }
 
     switch (opcode_msb_nibble)
@@ -162,14 +158,14 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
                         pc = stack[sp];
                         pc += 2;
                     } else {
-                        std::cout << "Not in a subroutine, could not return." << std::endl;
+                        Serial.println("Not in a subroutine, could not return.");
                         return 1;
                     }
                     break;
 
                 default:
                     //incorrect opcode
-                    std::cerr << "Unknown opcode -> " << std::hex << opcode << std::endl;
+                    Serial.printf("Unknown opcode -> %#06x\n", opcode);
                     break;
             }
             break;
@@ -186,7 +182,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
                 ++sp;
                 pc = opcode & 0x0FFF;
             } else {
-                std::cout << "Error: Reached maximum nesting level, unable to call subroutine." << std::endl;
+                Serial.println("Error: Reached maximum nesting level, unable to call subroutine.");
                 return 1;
             }
             break;
@@ -194,9 +190,8 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
         case 3:
             //only instruction is 3XNN Skips the next instruction if VX equals NN.
             val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
-            reg = get_nibble(opcode, 8, 0x0F00); //get the X from opcode
             pc += 2; //next instruction
-            if (V[reg] == val)
+            if (V[x_reg] == val)
             {
                 pc += 2; //adding 2 again so this instruction is skipped
             }
@@ -205,9 +200,8 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
         case 4:
             //instruction is 4XNN. Skips the next instruction if VX doesn't equal NN.
             val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
-            reg = get_nibble(opcode, 8, 0x0F00); //get the X from opcode
             pc += 2; //next instruction
-            if (V[reg] != val)
+            if (V[x_reg] != val)
             {
                 pc += 2; //adding 2 again so this instruction is skipped
             }
@@ -215,10 +209,8 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
 
         case 5:
             //instruction is 5XY0. Skips the next instruction if VX equals VY.
-            reg1 = get_nibble(opcode, 8, 0x0F00);
-            reg2 = get_nibble(opcode, 4, 0x00F0);
             pc += 2;
-            if (V[reg1] == V[reg2])
+            if (V[x_reg] == V[y_reg])
             {
                 pc += 2;
             }
@@ -227,16 +219,14 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
         case 6:
             //instruction is 6XNN. Sets VX to NN.
             val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
-            reg = get_nibble(opcode, 8, 0x0F00); //get the X from opcode
-            V[reg] = val;
+            V[x_reg] = val;
             pc += 2;
             break;
 
         case 7:
             //instruction is 7XNN. Adds NN to VX.
             val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
-            reg = get_nibble(opcode, 8, 0x0F00); //get the X from opcode
-            V[reg] += val;
+            V[x_reg] += val;
             pc += 2;
             break;
 
@@ -247,35 +237,27 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
             {
                 case 0:
                     //8XY0. Sets VX to the value of VY.
-                    reg1 = get_nibble(opcode, 8, 0x0F00);
-                    reg2 = get_nibble(opcode, 4, 0x00F0);
-                    V[reg1] = V[reg2];
+                    V[x_reg] = V[y_reg];
                     pc += 2;
                     break;
 
                 case 1:
                     //8XY1. Sets VX to VX or VY. (Bitwise OR operation) VF is reset to 0.
-                    reg1 = get_nibble(opcode, 8, 0x0F00);
-                    reg2 = get_nibble(opcode, 4, 0x00F0);
-                    V[reg1] |= V[reg2];
+                    V[x_reg] |= V[y_reg];
                     V[0xF] = 0;
                     pc += 2;
                     break;
 
                 case 2:
                     //8XY2. Sets VX to VX and VY. (Bitwise AND operation) VF is reset to 0.
-                    reg1 = get_nibble(opcode, 8, 0x0F00);
-                    reg2 = get_nibble(opcode, 4, 0x00F0);
-                    V[reg1] &= V[reg2];
+                    V[x_reg] &= V[y_reg];
                     V[0xF] = 0;
                     pc += 2;
                     break;
 
                 case 3:
                     //8XY3. Sets VX to VX xor VY. VF to 0
-                    reg1 = get_nibble(opcode, 8, 0x0F00);
-                    reg2 = get_nibble(opcode, 4, 0x00F0);
-                    V[reg1] ^= V[reg2];
+                    V[x_reg] ^= V[y_reg];
                     V[0xF] = 0;
                     pc += 2;
                     break;
@@ -283,66 +265,62 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
                 case 4:
                 {
                     //Adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't.
-                    reg1 = get_nibble(opcode, 8, 0x0F00);
-                    reg2 = get_nibble(opcode, 4, 0x00F0);
-                    initial_value = V[reg1];
-                    V[reg1] += V[reg2];
+                    initial_value = V[x_reg];
+                    V[x_reg] += V[y_reg];
                     //V[reg1] = (uint8_t) V[reg1];
-                    V[0xf] = initial_value > V[reg1] || V[reg2] > V[reg1];
+                    V[0xf] = initial_value > V[x_reg] || V[y_reg] > V[x_reg];
                     pc += 2;
                     break;
                 }
                 case 5:
                     //VY is subtracted from VX. VF is set to 0 when there's a borrow, and 1 when there isn't.
-                    reg1 = get_nibble(opcode, 8, 0x0F00);
-                    reg2 = get_nibble(opcode, 4, 0x00F0);
-                    single_bit = V[reg1] >= V[reg2];
-                    V[reg1] = V[reg1] - V[reg2];
+                    single_bit = V[x_reg] >= V[y_reg];
+                    V[x_reg] = V[x_reg] - V[y_reg];
                     V[0xf] = (uint8_t) single_bit;
                     pc += 2;
                     break;
 
                 case 6:
-                    //Shifts VX right by one. VF is set to the value of the least significant bit of VX before the shift.
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    single_bit = V[reg] & 0x1;
-                    V[reg] >>= 1;
+                    // 8XY6
+                    // Optionaly copy the set VX to the value of VY then,
+                    // shift VX right by one. VF is set to the value of the least significant bit of VX before the shift.
+                    if (shift_quirk) V[x_reg] = V[y_reg];
+                    single_bit = V[x_reg] & 0x1;
+                    V[x_reg] >>= 1;
                     V[0xf] = (uint8_t) single_bit;
                     pc += 2;
                     break;
 
                 case 7:
+                    // 8xy7
                     //Sets VX to VY minus VX. VF is set to 0 when there's a borrow, and 1 when there isn't.
-                    reg1 = get_nibble(opcode, 8, 0x0F00);
-                    reg2 = get_nibble(opcode, 4, 0x00F0);
-                    single_bit = V[reg2] >= V[reg1];
-                    V[reg1] = V[reg2] - V[reg1];
+                    single_bit = V[y_reg] >= V[x_reg];
+                    V[x_reg] = V[y_reg] - V[x_reg];
                     V[0xf] = single_bit;
                     pc += 2;
                     break;
 
                 case 0xE:
-                    //Shifts VX left by one. VF is set to the value of the most significant bit of VX before the shift.[2]
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    single_bit = V[reg] >> 7;
-                    V[reg] <<= 1;
-                    //V[reg] = (uint8_t) V[reg];
+                    // 8XYE
+                    // Optionaly copy the set VX to the value of VY then,
+                    // shift VX left by one. VF is set to the value of the most significant bit of VX before the shift.[2]
+                    if (shift_quirk) V[x_reg] = V[y_reg];
+                    single_bit = V[x_reg] >> 7;
+                    V[x_reg] <<= 1;
                     V[0xF] = (uint8_t) single_bit;
                     pc += 2;
                     break;
 
                 default:
-                    std::cerr << "Unknown opcode -> " << std::hex << opcode << std::endl;
+                    Serial.printf("Unknown opcode -> %#06x\n", opcode);
                     break;
             }
             break;
 
         case 9:
             //9XY0. 	Skips the next instruction if VX doesn't equal VY.
-            reg1 = get_nibble(opcode, 8, 0x0F00);
-            reg2 = get_nibble(opcode, 4, 0x00F0);
             pc += 2;
-            if (V[reg1] != V[reg2])
+            if (V[x_reg] != V[y_reg])
             {
                 pc += 2;
             }
@@ -363,8 +341,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
         case 12: //0xC
             //CXNN. Sets VX to the result of a bitwise and operation on a random number (Typically: 0 to 255) and NN.
             val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
-            reg = get_nibble(opcode, 8, 0x0F00); //get the X from opcode
-            V[reg] = 5/*(rand() % (0xFF + 1))*/ & val;
+            V[x_reg] = rand() % 256 & val;
             pc += 2;
             break;
 
@@ -375,21 +352,29 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
             // I value doesn’t change after the execution of this instruction.
             // VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that doesn’t happen
 
-            reg1 = get_nibble(opcode, 8, 0x0F00);
-            reg2 = get_nibble(opcode, 4, 0x00F0);
-            uint8_t x = V[reg1], y = V[reg2];
+
+            // My implementation was buggy so I got claude to write it. Sorry :/
+
+            uint8_t x = V[x_reg] % 64;   // wrap starting position onto the screen
+            uint8_t y = V[y_reg] % 32;
             const uint8_t ht = opcode & 0x000F; //N
-            constexpr uint8_t wt = 8;
+            const uint8_t wt = 8;
             V[0x0F] = 0;
 
             for (int i = 0; i < ht; ++i)
             {
                 int pixel = memory[I + i];
+                int py = y + i;
+                if (py >= 32) break;          // clip: stop drawing rows off the bottom
+
                 for (uint8_t j = 0; j < wt; ++j)
                 {
+                    int px = x + j;
+                    if (px >= 64) continue;   // clip: skip pixels off the right edge
+
                     if ((pixel & (0x80 >> j)) != 0)
                     {
-                        int index = ((x + j) + ((y + i) * 64)) % 2048;
+                        int index = px + (py * 64);
                         if (display[index])
                         {
                             V[0x0F] = 1;
@@ -410,9 +395,8 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
             {
                 case 0x9E:
                     //Skips the next instruction if the key stored in VX is pressed.
-                    reg = get_nibble(opcode, 8, 0x0F00);
                     pc += 2;
-                    if (keypad[V[reg]] != 0)
+                    if (keypad[V[x_reg]] != 0)
                     {
                         pc += 2;
                     }
@@ -420,16 +404,15 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
 
                 case 0xA1:
                     //Skips the next instruction if the key stored in VX isn't pressed.
-                    reg = get_nibble(opcode, 8, 0x0F00);
                     pc += 2;
-                    if (keypad[V[reg]] == 0)
+                    if (keypad[V[x_reg]] == 0)
                     {
                         pc += 2;
                     }
                     break;
 
                 default:
-                    std::cerr << "Unknown opcode -> " << std::hex << opcode << std::endl;
+                    Serial.printf("Unknown opcode -> %#06x\n", opcode);
                     break;
 
             }
@@ -442,8 +425,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
             {
                 case 0x07:
                     //FX07. Sets VX to the value of the delay timer.
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    V[reg] = delay_timer;
+                    V[x_reg] = delay_timer;
                     pc += 2;
                     break;
 
@@ -451,13 +433,12 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
                     //FX0A. A key press is awaited, and then stored in VX.
                 {
                     bool key_pressed = false;
-                    reg = get_nibble(opcode, 8, 0x0F00);
                     for (int i = 0; i < 16; ++i)
                     {
                         if (keypad[i] != 0)
                         {
                             key_pressed = true;
-                            V[reg] = (uint8_t) i;
+                            V[x_reg] = (uint8_t) i;
                         }
                     }
                     if (key_pressed)
@@ -469,90 +450,88 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
 
                 case 0x15:
                     //FX15. Sets the delay timer to VX.
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    delay_timer = V[reg];
+                    delay_timer = V[x_reg];
                     pc += 2;
                     break;
 
                 case 0x18:
                     //sets the sound timer to VX
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    sound_timer = V[reg];
+                    sound_timer = V[x_reg];
                     pc += 2;
                     break;
 
                 case 0x1E:
                     //Adds VX to I
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    I += V[reg];
+                    I += V[x_reg];
                     //I = (uint16_t) I;
                     pc += 2;
                     break;
 
                 case 0x29:
                     //Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) are represented by a 4x5 font.
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    I = V[reg] * 0x5;
+                    I = V[x_reg] * 0x5;
                     pc += 2;
                     break;
 
                 case 0x33:
                     //Stores the binary-coded decimal representation of VX, with the most significant of three digits at the address in I, the middle digit at I plus 1, and the least significant digit at I plus 2. (In other words, take the decimal representation of VX, place the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.)
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    memory[I] = (uint8_t) ((uint8_t) V[reg] / 100);
-                    memory[I + 1] = (uint8_t) ((uint8_t) (V[reg] / 10) % 10);
-                    memory[I + 2] = (uint8_t) ((uint8_t) (V[reg] % 100) % 10);
+                    memory[I] = (uint8_t) (V[x_reg] / 100);
+                    memory[I + 1] = (uint8_t) ((V[x_reg] / 10) % 10);
+                    memory[I + 2] = (uint8_t) ((V[x_reg]) % 10);
                     pc += 2;
                     break;
 
                 case 0x55:
                     //Stores V0 to VX (including VX) in memory starting at address I
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    for (int i = 0; i <= reg; ++i)
+                    for (int i = 0; i <= x_reg; ++i)
                     {
                         memory[I + i] = V[i];
                     }
-                    I = I + reg + 1U;
-                    I = (uint16_t) I;
+                    if (I_quirk) {
+                        I = I + x_reg + 1U;
+                        I = (uint16_t) I;
+                    }
                     pc += 2;
                     break;
 
                 case 0x65:
                     //Fills V0 to VX (including VX) with values from memory starting at address I
-                    reg = get_nibble(opcode, 8, 0x0F00);
-                    for (int i = 0; i <= reg; ++i)
+                    for (int i = 0; i <= x_reg; ++i)
                     {
                         V[i] = memory[I + i];
                     }
-                    I = I + reg + 1U;
-                    I = (uint16_t) I;
+                    if (I_quirk) {
+                        I = I + x_reg + 1U;
+                        I = (uint16_t) I;
+                    }
                     pc += 2;
                     break;
 
                 default:
-                    std::cerr << "Invalid opcode -> " << std::hex << opcode << std::endl;
+                    Serial.printf("Invalid opcode -> %#06x\n", opcode);
                     break;
             }
             break;
 
         default:
-            std::cerr << "Invalid opcode -> " << std::hex << opcode << std::endl;
+            Serial.printf("Invalid opcode -> %#06x\n", opcode);
             break;
     }
-    auto now = Clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_timer_update);
+    ulong now = millis();
+    ulong elapsed = now - last_timer_update;
 
     const int ms_per_tick = 1000 / 60;
     
-    if (elapsed.count() >= ms_per_tick) {
-        uint8_t ticks = elapsed.count() / ms_per_tick;
+    if (elapsed >= ms_per_tick) {
+        uint8_t ticks = elapsed / ms_per_tick;
         if (delay_timer > 0) {
+            //Serial.print("Ticks: ");
             delay_timer = (ticks >= delay_timer) ? 0 : delay_timer - ticks;
-            //std::cout << unsigned(delay_timer) << std::endl;
         }
         if (sound_timer > 0) {
             sound_timer = (ticks >= sound_timer) ? 0 : sound_timer - ticks;
             if (sound_on) {
+                /*
                 if (sound_timer>0) {
                     if (!audio.playing) {
                         audio.play();
@@ -562,10 +541,11 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on)
                         audio.stop();
                     }
                 }
+                */
             }
         }
 
-        last_timer_update += std::chrono::milliseconds(ticks * ms_per_tick);
+        last_timer_update = now;
     }
     return 0;
     

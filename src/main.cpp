@@ -1,376 +1,210 @@
-#include <iostream>
-#include <zconf.h>
-#include <string>
-#include <SDL_video.h>
-#include <SDL_render.h>
-#include <SDL_events.h>
-#include <SDL_ttf.h>
-#include <SDL.h>
+#include <Arduino.h>
+#include <U8g2lib.h>
 #include "chip8.h"
+#include "roms.h"
+#include "keymap.h"
+#include "oled_menu.h"
+#include <Wire.h>
+#include <Keypad.h>
 
-uint8_t keymap[16] = {
-        SDLK_x,
-        SDLK_1,
-        SDLK_2,
-        SDLK_3,
-        SDLK_q,
-        SDLK_w,
-        SDLK_e,
-        SDLK_a,
-        SDLK_s,
-        SDLK_d,
-        SDLK_z,
-        SDLK_c,
-        SDLK_4,
-        SDLK_r,
-        SDLK_f,
-        SDLK_v,
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
+const byte ROWS = 4;
+const byte COLS = 4;
+
+char keys[ROWS][COLS] = {
+  {'1', '2', '3', 'A'},
+  {'4', '5', '6', 'B'},
+  {'7', '8', '9', 'C'},
+  {'*', '0', '#', 'D'}
 };
 
-void get_text_and_rect(SDL_Renderer *renderer, int x, int y, char *text, 
-        TTF_Font *font, SDL_Texture **texture, SDL_Rect *rect, Uint32 WrapLength) {
-    int text_width;
-    int text_height;
-    if (*texture) {
-        SDL_DestroyTexture(*texture);
-        *texture = nullptr;
-    }
-    SDL_Surface *surface;
-    SDL_Color textColor = {255, 255, 255, 0};
+byte rowPins[ROWS] = {11, 12, 13, 6};   // R1 → R4
+byte colPins[COLS] = {7, 8, 9, 10};   // C1 → C4
 
-    surface = TTF_RenderText_Blended_Wrapped(font, text, textColor, WrapLength);
-    *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    text_width = surface->w;
-    text_height = surface->h;
-    SDL_FreeSurface(surface);
-    rect->x = x;
-    rect->y = y;
-    rect->w = text_width;
-    rect->h = text_height;
+constexpr int SSD1306_SCL = 1;
+constexpr int SSD1306_SDA = 2;
+
+Keypad keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+void showPausedScreen() {
+    const int center_x = u8g2.getWidth()/2;
+    const int center_y = u8g2.getHeight()/2;
+    const int box_w = 64;
+    const int box_h = 32;
+    u8g2.setDrawColor(0);
+    u8g2.drawBox(center_x - box_w/2,center_y-box_h/2,box_w,box_h);
+    u8g2.setDrawColor(1);
+    u8g2.drawFrame(center_x - box_w/2,center_y-box_h/2,box_w,box_h);
+    u8g2.setFont(u8g2_font_9x15B_tr);
+    const char* message = "Paused";
+    const int message_w = u8g2.getStrWidth(message);
+    const int message_h = 15;
+    u8g2.drawStr(center_x - message_w/2, center_y - message_h/2, message);
+    u8g2.sendBuffer();
 }
-
-int main(int argc, char *argv[])
+int startEmulator(const uint8_t* rom_data, const ulong rom_size)
 {
-
-    if (argc <= 1)
-    {
-        std::cerr << "Path to ROM to be loaded must be given as argument\nType -help to see usage\n";
-        return 1;
-    }
-
-    if (strcmp(argv[1], "-h") == 0)
-    {
-        //print the help menu
-        std::cout << "Normal usage: ./Chip8_Emulator <path_to_rom>\n"
-                  << "-a \n\tDisable audio\n"
-                  << "-t \n\tTrace mode\n"
-                  << "-d \n\tDebug mode\n";
-        return 0;
-    }
-
     Chip8 chip8;
-    if (!chip8.load_rom(argv[1])) //loading ROM provided as argument
+    if (!chip8.load_rom(rom_data, rom_size)) //loading ROM provided as argument
     {
-        std::cerr << "ROM could not be loaded. Possibly invalid path given\n";
+        Serial.println("ROM could not be loaded. Possibly invalid path given\n");
         return 1;
     }
-
-    bool trace_mode = false, audio_on = true, debug_mode = false;
-    if (argc > 2) //there are flags
-    {
-        for (int i = 2; i < argc; ++i)
-        {
-            if (strcmp(argv[i], "-t") == 0) //turn on trace mode
-            {
-                trace_mode = true;
-            }
-            else if (strcmp(argv[i], "-a") == 0)
-            {
-                audio_on = false;
-            }
-            else if (strcmp(argv[i], "-d") == 0)
-            {
-                debug_mode = true;
-            }
-            else
-            {
-                std::cerr << "Invalid flags given. Type -h to check usage\n";
-                return 1;
-            }
-        }
-    }
-
-    //set up SDL
-    SDL_Window *window;
-    SDL_Renderer *renderer;
-    SDL_Texture *texture, *text_texture, *debug_text_texture, *mem_view_texture;
-    SDL_Rect main_rect, help_text_rect, debug_rect, mem_view_rect;
-    //SDL_Color White = {255, 255, 255, 255};
-
-    main_rect.x = 0;
-    main_rect.y = 0;
-    main_rect.w = 640;
-    main_rect.h = 320;
-
-    debug_rect.x = main_rect.w + 5;
-    debug_rect.y = 0;
-    debug_rect.w = 640;
-    debug_rect.h = 320;
+    chip8.seed_prng();
     
-    const int window_height = main_rect.h + 20;
-    int window_width = main_rect.w;
+    bool trace_mode = false, audio_on = true, debug_mode = false;
 
-    if (debug_mode) {
-        window_width += debug_rect.x;
-    }
+
+
 
     const char* window_title = "Chip-8 Emulator";
-    if (SDL_Init(SDL_INIT_EVERYTHING) < 0)
-    {
-        std::cerr << "Error in initialising SDL " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-
-    window = SDL_CreateWindow((char*) window_title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, window_width, window_height,
-                              SDL_WINDOW_SHOWN);
-    
-    if (window == nullptr)
-    {
-        std::cerr << "Error in creating window " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-
-    renderer = SDL_CreateRenderer(window, -1, 0);
-    if (renderer == nullptr)
-    {
-        std::cerr << "Error in initializing rendering " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-
-    SDL_RenderSetLogicalSize(renderer, window_width, window_height);
-
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, 64, 32);
-    if (texture == nullptr)
-    {
-        std::cerr << "Error in setting up texture " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-
-    TTF_Init();
-    constexpr const char* myFont = "NotoSansMono.ttf";
-    TTF_Font* Sans = TTF_OpenFont(myFont, 16);
-    if (Sans == nullptr) {
-        std::cerr << "Failed to load font \""<<myFont<<"\"." << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-    const char* help_message = "p = pause, o = step, tab = fast forward, r = reset";
-    get_text_and_rect(renderer, 5, window_height-23, (char*) help_message, Sans, &text_texture, &help_text_rect, static_cast<Uint32>(main_rect.w));
-
 
     bool fast_forward = false;
     uint16_t iter_count = 0;
 
-    int mem_view_offset = 0;
-    constexpr int mem_view_lines = 8;
-    constexpr const int mem_view_bytes_per_line = 8;
-    constexpr const int mem_view_bytes = mem_view_lines * mem_view_bytes_per_line;
+    uint8_t* display_buf = u8g2.getBufferPtr();
+    const int display_buf_size = u8g2_GetBufferSize(u8g2.getU8g2());
 
-    auto start = std::chrono::steady_clock::now();
+    ulong start = micros();
     while (true)
     {
 
-
         if(chip8.single_cycle(trace_mode, audio_on)) {
-            std::cout << "Failed to execute last instruction. Exiting...\n";
-            SDL_Quit();
+            Serial.print("Failed to execute last instruction. Exiting...\n");
             return 1;
         }
-
-        SDL_Event event;
-        while (SDL_PollEvent(&event))
-        {
-            if (event.type == SDL_QUIT)
-            {
-                return 0;
-            }
-
-            if (event.type == SDL_KEYDOWN)
-            {
-                if (debug_mode){
-                    if (event.key.keysym.sym == SDLK_DOWN) {
-                        if (mem_view_offset < 4096 - mem_view_bytes) {
-                            mem_view_offset += mem_view_lines;
+        if (keypad.getKeys()) {
+    
+            for (int i = 0; i < LIST_MAX; i++) { 
+            
+                if (keypad.key[i].stateChanged) {
+                    
+                    char key = keypad.key[i].kchar;
+                    
+                    switch (keypad.key[i].kstate) {
+                    case PRESSED:
+                        if (key == 'D') {
+                            chip8.set_paused(!chip8.get_paused());
+                            if (chip8.get_paused()) {
+                                showPausedScreen();
+                            } else {
+                                chip8.set_draw_flag(1);
+                            }
                         }
-                    }
-                    if (event.key.keysym.sym == SDLK_UP) {
-                        if (mem_view_offset > 0) {
-                            mem_view_offset -= mem_view_lines;
-                        }
-                    }
-                    if (event.key.keysym.sym == SDLK_PAGEDOWN) {
-                        if (mem_view_offset < 4096 - mem_view_bytes) {
-                            mem_view_offset += mem_view_bytes;
-                        }
-                        if (mem_view_offset > 4096 - mem_view_bytes) {
-                            mem_view_offset = 4096 - mem_view_bytes;
-                        }
-                    }
-                    if (event.key.keysym.sym == SDLK_PAGEUP) {
-                        if (mem_view_offset > 0) {
-                            mem_view_offset -= mem_view_bytes;
-                        }
-                        if (mem_view_offset < 0) {
-                            mem_view_offset = 0;
-                        }
-                    }
-                }
-                if (event.key.keysym.sym == SDLK_r) {
-                    chip8.reset();
-                    if (!chip8.load_rom(argv[1]))
-                    {
-                        std::cerr << "ROM could not be reloaded. File probably deleted or moved.\n";
-                        return 1;
-                    }
-                    chip8.set_draw_flag(true);
-                }
-                if (event.key.keysym.sym == SDLK_p) {
-                    chip8.set_paused(!chip8.get_paused());
-                    if (chip8.get_paused()) {
-
-                        std::string new_title = std::format("Chip-8 emulator (PC={:#05x})", *chip8.get_debug_info().pc);
-                        SDL_SetWindowTitle(window, new_title.c_str());
-                    } else {
-
-                        SDL_SetWindowTitle(window, window_title);
-                    }
-                }
-                if (event.key.keysym.sym == SDLK_o) {
-                    chip8.set_paused(false);
-                    chip8.single_cycle(trace_mode, audio_on);
-                    chip8.set_paused(true);
-                    std::string new_title = std::format("Chip-8 emulator (PC={:#05x})", *chip8.get_debug_info().pc);
-                    SDL_SetWindowTitle(window, new_title.c_str());
-                }
-                if (event.key.keysym.sym == SDLK_TAB) {
-                    fast_forward = 1;
-                }
-                if (event.key.keysym.sym == SDLK_ESCAPE)
-                {
-                    SDL_Quit();
-                    return 0;
-                }
-
-                for (int i = 0; i < 16; ++i)
-                {
-                    if (event.key.keysym.sym == keymap[i])
-                    {
-                        chip8.set_keypad_value(i, 1);
+                        chip8.set_keypad_value(CHIP8_KEYMAP.at(key), 1);
+                        break;
+                        
+                    case RELEASED:
+                        chip8.set_keypad_value(CHIP8_KEYMAP.at(key), 0);
+                        break;
+                        
+                    case IDLE:
+                        break;
                     }
                 }
             }
-
-            if (event.type == SDL_KEYUP)
-            {
-                if (event.key.keysym.sym == SDLK_TAB) {
-                    fast_forward = 0;
-                }
-                for (int i = 0; i < 16; ++i)
-                {
-                    if (event.key.keysym.sym == keymap[i])
-                    {
-                        chip8.set_keypad_value(i, 0);
-                    }
-                }
-            }
-
         }
 
         if (chip8.get_draw_flag()||(debug_mode && iter_count%16==0))
         {
-            chip8.set_draw_flag(false);
-            uint32_t pixels[32 * 64];
+            // Clear display buffer
+            memset(display_buf, 0, display_buf_size);
+            
+            
             bool* raw_pixels = chip8.get_display_buffer();
-            for (int i = 0; i < 32 * 64; ++i)
+            /*
+            // Simpler but slower:
+            for (int y = 0; y < 32; ++y)
             {
-                if (raw_pixels[i] == 0)
-                {
-                    pixels[i] = 0xFF000000;
-                }
-                else
-                {
-                    pixels[i] = 0xFFFFFFFF;
-                }
-            }
-            if (debug_mode) {
-                DebugInfo& dbg = chip8.get_debug_info();
-                std::string debug_info_str = "";
-                for (uint8_t i = 0; i<16; ++i) {
-                    debug_info_str += std::format("V{:01x}={:#04x} ", i, dbg.V[i]);
-                }
-                debug_info_str+="\n";
-                debug_info_str+=std::format("PC={:#05x}, DT={:#04x}, ST={:#04x}, IReg={:#04x}", *dbg.pc, chip8.get_delay_timer(), chip8.get_sound_timer(), *dbg.I);
-                debug_info_str+="\nstack: {";
-                
-                for (uint8_t i = 0; i<16; ++i) {
-                    debug_info_str += std::format("{:#05x} ", dbg.stack[i]);
-                }
-                debug_info_str.pop_back();
-                debug_info_str+="}\nkeys: {";
-                for (uint8_t i = 0; i<16; ++i) {
-                    debug_info_str += std::format("{:01x} ", dbg.keypad[i]);
-                }
-                debug_info_str.pop_back();
-                debug_info_str += "}";
-
-                get_text_and_rect(renderer, debug_rect.x, 0, (char*) debug_info_str.c_str(), Sans, &debug_text_texture, &debug_rect, static_cast<Uint32>(main_rect.w));
-                std::string mem_view_text = std::format("{:#05x}: ", mem_view_offset);
-                for (uint16_t i = 0;i<mem_view_bytes;++i) {
-                    mem_view_text += std::format("{:#04x} ", chip8.get_memory()[i+mem_view_offset]);
-                    if ((i+1)%mem_view_lines==0&&!(i>mem_view_bytes-mem_view_bytes_per_line)){
-                        mem_view_text.pop_back();
-                        mem_view_text += std::format("\n{:#05x}: ", mem_view_offset+i+1);
+                for (int x = 0; x < 64; ++x) {
+                    //Serial.println(display_buf[x+(y*64)]);
+                    if(raw_pixels[x+(y*64)]) {
+                    
+                        u8g2.drawBox(x*2, y*2, 2, 2);
                     }
                 }
-                get_text_and_rect(renderer, debug_rect.x, debug_rect.h+5, (char*) mem_view_text.c_str(), Sans, &mem_view_texture, &mem_view_rect, static_cast<Uint32>(main_rect.w));
             }
-            SDL_UpdateTexture(texture, NULL, pixels, 64 * sizeof(uint32_t));
-            SDL_RenderClear(renderer);
-            SDL_RenderCopy(renderer, texture, NULL, &main_rect);
-            if (debug_mode) {
-                SDL_SetRenderDrawColor(renderer, 255 , 255 , 255, 255);
-                SDL_RenderDrawRect(renderer, &mem_view_rect);
-                SDL_SetRenderDrawColor(renderer, 0 , 0 , 0, 255);
-                SDL_RenderCopy(renderer, debug_text_texture, NULL, &debug_rect);
-                SDL_RenderCopy(renderer, mem_view_texture, NULL, &mem_view_rect);
-            }
-            SDL_RenderCopy(renderer, text_texture, NULL, &help_text_rect);
+            */
+           for (int cy = 0; cy < 32; ++cy) {
+                for (int cx = 0; cx < 64; ++cx) {
+                    if (!raw_pixels[cx + cy * 64]) continue;
 
-            SDL_RenderPresent(renderer);
+                    const int sx = cx << 1;   // *2
+                    const int sy = cy << 1;
+
+                    // set the 2×2 block
+                    for (int dy = 0; dy < 2; ++dy) {
+                        const int y = sy + dy;
+                        const int page = y >> 3;          // /8
+                        const uint8_t mask = 1u << (y & 7);
+
+                        uint8_t *row = display_buf + page * 128 + sx;
+                        row[0] |= mask;
+                        row[1] |= mask;
+                    }
+                }
+            }
+            u8g2.sendBuffer();
+            
         }
 
         ++iter_count;
-        auto now = std::chrono::steady_clock::now();
-        double elapsed =
-        std::chrono::duration<double>(now - start).count();
+        ulong now = micros();
+        ulong elapsed = now - start;
         
-        start = now;
-        if (!(iter_count%1024) && debug_mode) {
-            std::cout << "Cycles/s: "
-                    << 1.0/elapsed << '\n';
+        
+        if (!(iter_count%1024) && debug_mode /*&& chip8.get_draw_flag()*/) {
+            Serial.printf("us per cycle: %lu\n", elapsed);
         }
-        if (!fast_forward&&elapsed < 0.0015) {
+        if (!fast_forward&&elapsed < 1500) {
             
-            usleep(1500-(elapsed*1000000));
+            delayMicroseconds(1500-(elapsed));
         } 
-            
+        if (chip8.get_draw_flag()) chip8.set_draw_flag(false);
+        start = micros();
         
 
     }
 
     return 0;
 }
+void setup() {
+    
+    Serial.begin(115200);
+    Wire.begin(SSD1306_SDA, SSD1306_SCL, 1000000);
+    if (!u8g2.begin())
+    {
+        Serial.println("Failed to initialize display!");
+        return;
+    }
+    u8g2.setBusClock(1000000);
+    u8g2.setFont(u8g2_font_6x13_tr);
+
+    OledMenu oled_menu(u8g2, ROM_NAMES);
+    oled_menu.set_title("Select a game:");
+    oled_menu.draw_title();
+    oled_menu.draw();
+    while (true) {
+        char key = keypad.getKey();
+
+        if(key == '5') {
+            if (oled_menu.m_selected < ROM_NAMES.size()-1) {++oled_menu.m_selected;}
+            else {oled_menu.m_selected = 0;}
+            oled_menu.draw();
+        } else if (key == '2') {
+            if (oled_menu.m_selected > 0) {--oled_menu.m_selected;}
+            else {oled_menu.m_selected = ROM_NAMES.size()-1;}
+            oled_menu.draw();
+           
+        } else if (key == '6') {
+            break;
+        }
+    }
+    
+    startEmulator(ROMS_DATA[oled_menu.m_selected].data(), ROMS_DATA[oled_menu.m_selected].size());
+}
+void loop() {}
+
