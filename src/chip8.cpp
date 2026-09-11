@@ -1,8 +1,5 @@
-//
-// Created by sarbajit on 5/5/17.
-//
-
 #include <Arduino.h>
+#include "audio.h"
 #include "chip8.h"
 
 //constructor
@@ -117,14 +114,14 @@ bool Chip8::get_paused() {
 void Chip8::seed_prng() {
     srand(time(NULL));
 }
-//emulates one cycle
-int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I_quirk)
+
+int Chip8::single_cycle(bool trace_mode, bool sound_on, ToneGenerator& audio, bool shift_quirk, bool memory_quirk)
 {
     if (paused) return 0;
 
-    //2 byte opcode
+    // 2 byte opcode
     uint16_t opcode = (memory[pc] << 8) | (memory[pc + 1]);
-    uint8_t opcode_msb_nibble = get_nibble(opcode, 12, 0xF000); //if value is ABCD(each 4 bits), it returns A
+    uint8_t opcode_msb_nibble = get_nibble(opcode, 12, 0xF000);
     uint8_t x_reg = get_nibble(opcode, 8, 0x0F00);
     uint8_t y_reg = get_nibble(opcode, 4, 0x00F0);
     uint8_t val, initial_value;
@@ -143,7 +140,6 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
     switch (opcode_msb_nibble)
     {
         case 0:
-            //only found 00E0 and 00EE starting with 0 so check for these two
             switch (opcode)
             {
                 case 0x00E0:
@@ -164,7 +160,6 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
 
                 default:
-                    //incorrect opcode
                     Serial.printf("Unknown opcode -> %#06x\n", opcode);
                     break;
             }
@@ -175,8 +170,8 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
             break;
 
         case 2:
-            //only instruction is 2NNN Calls subroutine at NNN.
-            //so put current address in stack and move pc to NNN
+            // 2NNN: Call subroutine at NNN.
+            // so push the current address to the stack and move pc to NNN
             if (!(sp > stack_size-1)) {
                 stack[sp] = pc;
                 ++sp;
@@ -188,27 +183,28 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
             break;
 
         case 3:
-            //only instruction is 3XNN Skips the next instruction if VX equals NN.
-            val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
-            pc += 2; //next instruction
+            // 3XNN: Skip the next instruction if VX equals NN.
+            val = get_nibble(opcode, 0, 0x00FF); // Extracts the lower byte
+            
+            pc += 2;
             if (V[x_reg] == val)
             {
-                pc += 2; //adding 2 again so this instruction is skipped
+                pc += 2;
             }
             break;
 
         case 4:
-            //instruction is 4XNN. Skips the next instruction if VX doesn't equal NN.
-            val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
-            pc += 2; //next instruction
+            // 4XNN: Skip the next instruction if VX doesn't equal NN.
+            val = get_nibble(opcode, 0, 0x00FF);
+            pc += 2;
             if (V[x_reg] != val)
             {
-                pc += 2; //adding 2 again so this instruction is skipped
+                pc += 2;
             }
             break;
 
         case 5:
-            //instruction is 5XY0. Skips the next instruction if VX equals VY.
+            // 5XY0: Skip the next instruction if VX equals VY.
             pc += 2;
             if (V[x_reg] == V[y_reg])
             {
@@ -217,46 +213,45 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
             break;
 
         case 6:
-            //instruction is 6XNN. Sets VX to NN.
-            val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
+            // 6XNN: Set VX to NN.
+            val = get_nibble(opcode, 0, 0x00FF);
             V[x_reg] = val;
             pc += 2;
             break;
 
         case 7:
-            //instruction is 7XNN. Adds NN to VX.
-            val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
+            // 7XNN: Add NN to VX.
+            val = get_nibble(opcode, 0, 0x00FF);
             V[x_reg] += val;
             pc += 2;
             break;
 
         case 8:
-            //multiple instructions possible
-            val = get_nibble(opcode, 0, 0x000F); //extract last 4 bits
+            val = get_nibble(opcode, 0, 0x000F); // extract last 4 bits
             switch (val)
             {
                 case 0:
-                    //8XY0. Sets VX to the value of VY.
+                    // 8XY0: Sets VX to the value of VY.
                     V[x_reg] = V[y_reg];
                     pc += 2;
                     break;
 
                 case 1:
-                    //8XY1. Sets VX to VX or VY. (Bitwise OR operation) VF is reset to 0.
+                    // 8XY1: Sets VX to VX or VY (Bitwise OR operation). VF is reset to 0.
                     V[x_reg] |= V[y_reg];
                     V[0xF] = 0;
                     pc += 2;
                     break;
 
                 case 2:
-                    //8XY2. Sets VX to VX and VY. (Bitwise AND operation) VF is reset to 0.
+                    //8XY2: Set VX to VX and VY (Bitwise AND operation). VF is reset to 0.
                     V[x_reg] &= V[y_reg];
                     V[0xF] = 0;
                     pc += 2;
                     break;
 
                 case 3:
-                    //8XY3. Sets VX to VX xor VY. VF to 0
+                    //8XY3: Set VX to VX xor VY. VF to 0
                     V[x_reg] ^= V[y_reg];
                     V[0xF] = 0;
                     pc += 2;
@@ -264,7 +259,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
 
                 case 4:
                 {
-                    //Adds VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't.
+                    // 8XY4: Add VY to VX. VF is set to 1 when there's a carry, and to 0 when there isn't.
                     initial_value = V[x_reg];
                     V[x_reg] += V[y_reg];
                     //V[reg1] = (uint8_t) V[reg1];
@@ -273,7 +268,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
                 }
                 case 5:
-                    //VY is subtracted from VX. VF is set to 0 when there's a borrow, and 1 when there isn't.
+                    // 8XY5: VY is subtracted from VX. VF is set to 0 when there's an underflow, and 1 when there isn't.
                     single_bit = V[x_reg] >= V[y_reg];
                     V[x_reg] = V[x_reg] - V[y_reg];
                     V[0xf] = (uint8_t) single_bit;
@@ -281,7 +276,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
 
                 case 6:
-                    // 8XY6
+                    // 8XY6:
                     // Optionaly copy the set VX to the value of VY then,
                     // shift VX right by one. VF is set to the value of the least significant bit of VX before the shift.
                     if (shift_quirk) V[x_reg] = V[y_reg];
@@ -292,8 +287,8 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
 
                 case 7:
-                    // 8xy7
-                    //Sets VX to VY minus VX. VF is set to 0 when there's a borrow, and 1 when there isn't.
+                    // 8XY7:
+                    // Set VX to VY minus VX. VF is set to 0 when there's an underflow, and 1 when there isn't.
                     single_bit = V[y_reg] >= V[x_reg];
                     V[x_reg] = V[y_reg] - V[x_reg];
                     V[0xf] = single_bit;
@@ -301,7 +296,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
 
                 case 0xE:
-                    // 8XYE
+                    // 8XYE:
                     // Optionaly copy the set VX to the value of VY then,
                     // shift VX left by one. VF is set to the value of the most significant bit of VX before the shift.[2]
                     if (shift_quirk) V[x_reg] = V[y_reg];
@@ -318,7 +313,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
             break;
 
         case 9:
-            //9XY0. 	Skips the next instruction if VX doesn't equal VY.
+            // 9XY0: Skip the next instruction if VX doesn't equal VY.
             pc += 2;
             if (V[x_reg] != V[y_reg])
             {
@@ -326,28 +321,28 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
             }
             break;
 
-        case 10: //0xA
-            //ANNN Sets I to the address NNN.
+        case 0xA: // 0xA
+            // ANNN: Set I to the address NNN.
             I = opcode & 0x0FFF;
             pc += 2;
             break;
 
-        case 11: //0xB
-            //BNNN. Jumps to the address NNN plus V0.
+        case 0xB: 
+            // BNNN: Jump to the address NNN plus V0.
             pc = (opcode & 0x0FFF);
             pc += V[0];
             break;
 
-        case 12: //0xC
-            //CXNN. Sets VX to the result of a bitwise and operation on a random number (Typically: 0 to 255) and NN.
+        case 0xC: 
+            // CXNN: Set VX to the result of a bitwise and operation on a random number (Typically: 0 to 255) and NN.
             val = get_nibble(opcode, 0, 0x00FF); //extract the lower 8 bits
             V[x_reg] = rand() % 256 & val;
             pc += 2;
             break;
 
-        case 13: //0xD
+        case 0xD: //0xD
         {
-            //DXYN. Draws a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels.
+            //DXYN: Draw a sprite at coordinate (VX, VY) that has a width of 8 pixels and a height of N pixels.
             // Each row of 8 pixels is read as bit-coded starting from memory location I;
             // I value doesn’t change after the execution of this instruction.
             // VF is set to 1 if any screen pixels are flipped from set to unset when the sprite is drawn, and to 0 if that doesn’t happen
@@ -388,13 +383,12 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
             pc += 2;
             break;
         }
-        case 14: //0x0E
-            //two instructions possible
+        case 0xE:
             val = get_nibble(opcode, 0, 0x00FF);
             switch (val)
             {
                 case 0x9E:
-                    //Skips the next instruction if the key stored in VX is pressed.
+                    // EX9E: Skip the next instruction if the key stored in VX is pressed.
                     pc += 2;
                     if (keypad[V[x_reg]] != 0)
                     {
@@ -403,7 +397,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
 
                 case 0xA1:
-                    //Skips the next instruction if the key stored in VX isn't pressed.
+                    // EXA1: Skip the next instruction if the key stored in VX isn't pressed.
                     pc += 2;
                     if (keypad[V[x_reg]] == 0)
                     {
@@ -418,19 +412,18 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
             }
             break;
 
-        case 15: //0x0F
-            //multiple instructions possible
+        case 0xF: 
             val = get_nibble(opcode, 0, 0x00FF);
             switch (val)
             {
                 case 0x07:
-                    //FX07. Sets VX to the value of the delay timer.
+                    // FX07: Set VX to the value of the delay timer.
                     V[x_reg] = delay_timer;
                     pc += 2;
                     break;
 
                 case 0x0A:
-                    //FX0A. A key press is awaited, and then stored in VX.
+                    // FX0A: A key press is awaited, and then stored in VX (blocking operation).
                 {
                     bool key_pressed = false;
                     for (int i = 0; i < 16; ++i)
@@ -449,32 +442,36 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                 }
 
                 case 0x15:
-                    //FX15. Sets the delay timer to VX.
+                    // FX15: Set the delay timer to VX.
                     delay_timer = V[x_reg];
                     pc += 2;
                     break;
 
                 case 0x18:
-                    //sets the sound timer to VX
+                    // FX18: Set the sound timer to VX
                     sound_timer = V[x_reg];
                     pc += 2;
                     break;
 
                 case 0x1E:
-                    //Adds VX to I
+                    // FX1E: Add VX to I
                     I += V[x_reg];
                     //I = (uint16_t) I;
                     pc += 2;
                     break;
 
                 case 0x29:
-                    //Sets I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) are represented by a 4x5 font.
+                    // FX29: Set I to the location of the sprite for the character in VX. Characters 0-F (in hexadecimal) are represented by a 4x5 font.
                     I = V[x_reg] * 0x5;
                     pc += 2;
                     break;
 
                 case 0x33:
-                    //Stores the binary-coded decimal representation of VX, with the most significant of three digits at the address in I, the middle digit at I plus 1, and the least significant digit at I plus 2. (In other words, take the decimal representation of VX, place the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.)
+                    // FX33:
+                    // Store the binary-coded decimal representation of VX, with the most significant of three digits at the address in I, 
+                    // the middle digit at I plus 1, and the least significant digit at I plus 2. (In other words, take the decimal representation of VX, 
+                    // place the hundreds digit in memory at location in I, the tens digit at location I+1, and the ones digit at location I+2.)
+
                     memory[I] = (uint8_t) (V[x_reg] / 100);
                     memory[I + 1] = (uint8_t) ((V[x_reg] / 10) % 10);
                     memory[I + 2] = (uint8_t) ((V[x_reg]) % 10);
@@ -482,12 +479,12 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
 
                 case 0x55:
-                    //Stores V0 to VX (including VX) in memory starting at address I
+                    // FX55: Store V0 to VX (including VX) in memory starting at address I
                     for (int i = 0; i <= x_reg; ++i)
                     {
                         memory[I + i] = V[i];
                     }
-                    if (I_quirk) {
+                    if (memory_quirk) {
                         I = I + x_reg + 1U;
                         I = (uint16_t) I;
                     }
@@ -495,12 +492,12 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                     break;
 
                 case 0x65:
-                    //Fills V0 to VX (including VX) with values from memory starting at address I
+                    // FX65: Fill V0 to VX (including VX) with values from memory starting at address I
                     for (int i = 0; i <= x_reg; ++i)
                     {
                         V[i] = memory[I + i];
                     }
-                    if (I_quirk) {
+                    if (memory_quirk) {
                         I = I + x_reg + 1U;
                         I = (uint16_t) I;
                     }
@@ -531,7 +528,7 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
         if (sound_timer > 0) {
             sound_timer = (ticks >= sound_timer) ? 0 : sound_timer - ticks;
             if (sound_on) {
-                /*
+                
                 if (sound_timer>0) {
                     if (!audio.playing) {
                         audio.play();
@@ -539,9 +536,9 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, bool shift_quirk, bool I
                 } else {
                     if (audio.playing){
                         audio.stop();
-                    }
+                    } 
                 }
-                */
+                
             }
         }
 
