@@ -31,7 +31,7 @@ constexpr int SSD1306_SDA = 2;
 constexpr int BUZZER_PIN = 3;
 constexpr int BUZZER_FREQ = 440;
 
-const char VERSION_STRING[] = "Version           0.2";
+const char VERSION_STRING[] = "Version           0.3";
 
 static int selected_game = 0;
 
@@ -42,11 +42,16 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 Preferences prefs;
 ToneGenerator emulator_audio(BUZZER_PIN, BUZZER_FREQ);
 
-std::string joinOptionAndValue(MenuOption option, int value, int new_str_len=21) {
+std::string joinOptionAndValue(const MenuOption& option, int value, int new_str_len=21) {
     std::string tmp(new_str_len, ' ');
     int old_size = tmp.length();
     tmp.replace(0, option.name_len, option.name);
-    if(option.max_value == 1 && option.min_value == 0) {
+    if (option.value_names != nullptr) {
+        int value_len = strlen(option.value_names->at(value));
+        tmp.replace(new_str_len-value_len, value_len, option.value_names->at(value));
+    } 
+    else if(option.max_value == 1 && option.min_value == 0) 
+    {
         if (value) {
             tmp.replace(new_str_len-2, 2, "on");
         } else {
@@ -66,7 +71,15 @@ void settingsMenu() {
     settings_vec.reserve(settings_arr.size()+1);
     for (int i = 0; i<settings_arr.size(); ++i) {
         
-        int value = prefs.getInt(settings_arr.at(i).name);
+        int value = prefs.getInt(settings_arr.at(i).name, settings_arr.at(i).default_value);
+        if (value > settings_arr.at(i).max_value || value < settings_arr.at(i).min_value)
+        {
+            Serial.print("WARN: The value of preference \"");
+            Serial.print(settings_arr.at(i).name);
+            Serial.println("\" is out of range and will be reset.");
+            value = settings_arr.at(i).default_value;
+            prefs.putInt(settings_arr.at(i).name, value);
+        }
         settings_vec.push_back(joinOptionAndValue(settings_arr.at(i), value));
             
     }
@@ -95,7 +108,7 @@ void settingsMenu() {
             int prev_val = prefs.getInt(selected_option.name, 0);
             int new_val;
             if (key == '6')
-                new_val = { prev_val < selected_option.max_value ? prev_val + 1 : 0 };
+                new_val = { prev_val < selected_option.max_value ? prev_val + 1 :  selected_option.min_value};
             else
                 new_val = { prev_val > selected_option.min_value ? prev_val - 1 : selected_option.max_value};
 
@@ -149,17 +162,23 @@ int gameSelectionMenu(int default_game = 0) {
 void showPausedScreen() {
     const int center_x = u8g2.getWidth()/2;
     const int center_y = u8g2.getHeight()/2;
-    const int box_w = 64;
-    const int box_h = 32;
+    const int box_w = 96;
+    const int box_h = 48;
+    const int box_x = center_x - box_w/2;
     u8g2.setDrawColor(0);
-    u8g2.drawBox(center_x - box_w/2,center_y-box_h/2,box_w,box_h);
+    u8g2.drawBox(box_x, center_y-box_h/2,box_w,box_h);
     u8g2.setDrawColor(1);
-    u8g2.drawFrame(center_x - box_w/2,center_y-box_h/2,box_w,box_h);
+    u8g2.drawFrame(box_x, center_y-box_h/2,box_w,box_h);
     u8g2.setFont(u8g2_font_9x15B_tr);
-    const char* message = "Paused";
+    const char* message = "  Paused";
     const int message_w = u8g2.getStrWidth(message);
     const int message_h = 15;
-    u8g2.drawStr(center_x - message_w/2, center_y - message_h/2, message);
+    u8g2.drawStr(center_x - message_w/2, center_y - message_h-2, message);
+    u8g2.setFont(u8g2_font_open_iconic_play_1x_t);
+    u8g2.drawGlyph(center_x - message_w/2, center_y - message_h-1, 0x44);
+    u8g2.setFont(u8g2_font_6x10_tr);
+    u8g2.drawStr(box_x + 2, center_y + 10, "Press # to quit");
+    u8g2.drawStr(box_x + 2, center_y, "Press D to play");
     u8g2.sendBuffer();
 }
 
@@ -168,13 +187,14 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
     Chip8 chip8;
     if (!chip8.load_rom(rom_data, rom_size)) 
     {
-        Serial.println("ROM could not be loaded. Possibly invalid path given\n");
+        Serial.println("ROM could not be loaded. Check rom size\n");
         return 1;
     }
     chip8.seed_prng();
     
-    bool trace_mode = false, audio_on = !prefs.getInt("Mute"), debug_mode = false;
+    bool trace_mode = false, audio_on = prefs.getInt("Audio", 1), debug_mode = false, scale_2x = prefs.getInt("Scale", 1);
     bool i_quirk = prefs.getInt("Memory quirk"), s_quirk = prefs.getInt("Shift quirk"), fast_forward = prefs.getInt("Turbo");
+
 
     const char* window_title = "Chip-8 Emulator";
 
@@ -249,23 +269,36 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
                 }
             }
             */
-           
-           for (int cy = 0; cy < 32; ++cy) {
-                for (int cx = 0; cx < 64; ++cx) {
-                    if (!raw_pixels[cx + cy * 64]) continue;
+            if (!scale_2x) {
+                for (int y = 0; y < 32; ++y) {
+                    uint8_t page   = (y + 16) >> 3;                 // y / 8
+                    uint8_t bit    = 1 << (y & 7);           // y % 8
+                    uint8_t* rowPtr = display_buf + page * 128 + 32; // start of that page
 
-                    const int sx = cx << 1;   // *2
-                    const int sy = cy << 1;
+                    for (int x = 0; x < 64; ++x) {
+                        if (raw_pixels[x + y * 64]) {
+                            rowPtr[x] |= bit;                // set the bit
+                        }
+                    }
+                }
+            } else {
+                for (int cy = 0; cy < 32; ++cy) {
+                    for (int cx = 0; cx < 64; ++cx) {
+                        if (!raw_pixels[cx + cy * 64]) continue;
+                        const int sx = cx << 1;   // *2
+                        const int sy = cy << 1;
 
-                    // set the 2×2 block
-                    for (int dy = 0; dy < 2; ++dy) {
-                        const int y = sy + dy;
-                        const int page = y >> 3;          // /8
-                        const uint8_t mask = 1u << (y & 7);
+                        // set the 2×2 block
+                        
+                        for (int dy = 0; dy < 2; ++dy) {
+                            const int y = sy + dy;
+                            const int page = y >> 3;          // /8
+                            const uint8_t mask = 1u << (y & 7);
 
-                        uint8_t *row = display_buf + page * 128 + sx;
-                        row[0] |= mask;
-                        row[1] |= mask;
+                            uint8_t *row = display_buf + page * 128 + sx;
+                            row[0] |= mask;
+                            row[1] |= mask;
+                        }
                     }
                 }
             }
