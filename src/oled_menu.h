@@ -10,7 +10,7 @@ private:
     const std::vector<std::string>& m_items;
     
     const char* m_title = "Menu";
-    const uint8_t* m_title_font = u8g2_font_6x13_tr;
+    const uint8_t* m_title_font = u8g2_font_7x13B_tr;
     uint8_t m_title_font_height = 13;
     const uint8_t* m_items_font = u8g2_font_6x12_tr;
     uint8_t m_items_font_height = 12;

@@ -6,6 +6,7 @@
 #include "oled_menu.h"
 #include "audio.h"
 #include "settings_menu.h"
+#include "popup_screens.h"
 #include <Wire.h>
 #include <Keypad.h>
 #include <Preferences.h>
@@ -35,20 +36,20 @@ const char VERSION_STRING[] = "Version           0.3";
 
 static int selected_game = 0;
 
-Keypad keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+static Keypad keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
 
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+static U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 
-Preferences prefs;
-ToneGenerator emulator_audio(BUZZER_PIN, BUZZER_FREQ);
+static Preferences prefs;
+static ToneGenerator emulator_audio(BUZZER_PIN, BUZZER_FREQ);
 
 std::string joinOptionAndValue(const MenuOption& option, int value, int new_str_len=21) {
     std::string tmp(new_str_len, ' ');
     int old_size = tmp.length();
     tmp.replace(0, option.name_len, option.name);
-    if (option.value_names != nullptr) {
-        int value_len = strlen(option.value_names->at(value));
-        tmp.replace(new_str_len-value_len, value_len, option.value_names->at(value));
+    if (option.value_map != nullptr) {
+        int value_len = strlen(option.value_map->at(value));
+        tmp.replace(new_str_len-value_len, value_len, option.value_map->at(value));
     } 
     else if(option.max_value == 1 && option.min_value == 0) 
     {
@@ -159,29 +160,6 @@ int gameSelectionMenu(int default_game = 0) {
 }
 
 
-void showPausedScreen() {
-    const int center_x = u8g2.getWidth()/2;
-    const int center_y = u8g2.getHeight()/2;
-    const int box_w = 96;
-    const int box_h = 48;
-    const int box_x = center_x - box_w/2;
-    u8g2.setDrawColor(0);
-    u8g2.drawBox(box_x, center_y-box_h/2,box_w,box_h);
-    u8g2.setDrawColor(1);
-    u8g2.drawFrame(box_x, center_y-box_h/2,box_w,box_h);
-    u8g2.setFont(u8g2_font_9x15B_tr);
-    const char* message = "  Paused";
-    const int message_w = u8g2.getStrWidth(message);
-    const int message_h = 15;
-    u8g2.drawStr(center_x - message_w/2, center_y - message_h-2, message);
-    u8g2.setFont(u8g2_font_open_iconic_play_1x_t);
-    u8g2.drawGlyph(center_x - message_w/2, center_y - message_h-1, 0x44);
-    u8g2.setFont(u8g2_font_6x10_tr);
-    u8g2.drawStr(box_x + 2, center_y + 10, "Press # to quit");
-    u8g2.drawStr(box_x + 2, center_y, "Press D to play");
-    u8g2.sendBuffer();
-}
-
 int startEmulator(const uint8_t* rom_data, const ulong rom_size)
 {
     Chip8 chip8;
@@ -224,7 +202,8 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
                         if (key == 'D') {
                             chip8.set_paused(!chip8.get_paused());
                             if (chip8.get_paused()) {
-                                showPausedScreen();
+                                emulator_audio.stop();
+                                showPausedScreen(u8g2);
                             } else {
                                 chip8.set_draw_flag(1);
                             }
@@ -343,6 +322,7 @@ void setup() {
 
 void loop() {
     selected_game = gameSelectionMenu(selected_game);
+    showStartingScreen(u8g2);
     startEmulator(ROMS_DATA[selected_game].data(), ROMS_DATA[selected_game].size());
 }
 
