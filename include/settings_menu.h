@@ -20,9 +20,11 @@ struct MenuOption
 };
 
 const OptionUmap scale_map = {
-    {0, "1x"},
-    {1, "2x"}
+    {1, "1x"},
+    {2, "2x"},
+    {3, "3x"},
+    {4, "fullscreen"}
 };
 
 const std::array settings_arr = {MenuOption("Shift quirk"), MenuOption("Memory quirk"), MenuOption("Turbo"), 
-                                MenuOption("Audio", 1), MenuOption("Scale", 1, 1, 0, 1, &scale_map)};
+                                MenuOption("Audio", 1), MenuOption("Scale", 3, 4, 1, 1, &scale_map)};
