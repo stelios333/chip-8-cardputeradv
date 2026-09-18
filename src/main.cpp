@@ -24,7 +24,7 @@ const int BUZZER_FREQ = 440;
 const int FULLSCREEN_W = 240;
 const int FULLSCREEN_H = 120;
 const int MENU_OPTION_MAX_CHARACTERS = 25;
-const char VERSION_STRING[] = "Version               0.3";
+const char VERSION_STRING[] = "Version           0.4-adv";
 
 static int selected_game = 0;
 
@@ -32,11 +32,10 @@ static const int MAX_SCALE = 4;
 static uint16_t framebuffer[64*MAX_SCALE * 32*MAX_SCALE];
 
 static Adafruit_TCA8418 keypad;
+#ifdef PRECOMPUTED_SCALE_MAP
 static uint8_t mapX[FULLSCREEN_W];
 static uint8_t mapY[FULLSCREEN_H];
-
-
-
+#endif
 static TFT_eSPI tft = TFT_eSPI();
 
 static Preferences prefs;
@@ -217,6 +216,7 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
         }
         
         if (keypad.available()&&iter_count%4) {
+            // TODO: Interrupt-based event handling
             int event = keypad.getEvent();
             bool pressed = event & 0x80;
             event &= 0x7F;
@@ -266,15 +266,22 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
             
             bool* raw_pixels = chip8.get_display_buffer();
             
-            
 
             if (fullscreen) {
                 for (int dy = 0; dy < fb_h; ++dy) {
+                    #ifdef PRECOMPUTED_SCALE_MAP
                     int sy = mapY[dy];
+                    #else
+                    int sy = (dy * 32) / FULLSCREEN_H;
+                    #endif
                     const bool* srcRow = raw_pixels + sy * 64;
                     uint16_t* dstRow = framebuffer + dy * fb_w;
                     for (int dx = 0; dx < fb_w; ++dx) {
+                        #ifdef PRECOMPUTED_SCALE_MAP
                         dstRow[dx] = srcRow[mapX[dx]] ? TFT_WHITE : TFT_BLACK;
+                        #else
+                        dstRow[dx] = srcRow[(dx * 64) / FULLSCREEN_W] ? TFT_WHITE : TFT_BLACK;
+                        #endif
                     }
                 }
                 
@@ -321,10 +328,12 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
     return 0;
 }
 
+#ifdef PRECOMPUTED_SCALE_MAP
 constexpr void initScaleMaps() {
     for (int dx = 0; dx < FULLSCREEN_W; ++dx) mapX[dx] = (dx * 64) / FULLSCREEN_W;
     for (int dy = 0; dy < FULLSCREEN_H; ++dy) mapY[dy] = (dy * 32) / FULLSCREEN_H;
 }
+#endif
 
 void setup() {
     Serial.begin(115200);
@@ -342,7 +351,9 @@ void setup() {
     tft.begin();
     tft.setRotation(1); // Landscape orientation
     tft.fillScreen(TFT_BLACK);
+    #ifdef PRECOMPUTED_SCALE_MAP
     initScaleMaps();
+    #endif
 }
 
 void loop() {

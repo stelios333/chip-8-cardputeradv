@@ -39,9 +39,7 @@ void TFTMenu::draw()
     m_tft.startWrite();
     for(int i=0; i < m_items.size() && i < max_lines; i++){
         int item_index = i+m_scroll_offset;
-        m_tft.setTextColor(TFT_WHITE);
         m_tft.setCursor(1,y_offset);
-
         if (m_items[item_index].size()>max_chars) {
             Serial.println("String too large!");
         }
@@ -50,6 +48,7 @@ void TFTMenu::draw()
             m_tft.setTextColor(TFT_TRANSPARENT);
             m_tft.print(m_items[item_index].c_str());
         } else {
+            m_tft.setTextColor(TFT_WHITE);
             m_tft.print(m_items[item_index].c_str());
         }
         y_offset += m_items_font_height;
