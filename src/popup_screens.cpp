@@ -16,6 +16,7 @@ void showPausedScreen(TFT_eSPI& tft) {
     const int box_x = center_x - box_w/2;
     drawRectWithBorder(tft, box_x, center_y-box_h/2,box_w,box_h);
     tft.unloadFont();
+    tft.setTextColor(TFT_WHITE);
     tft.setFreeFont(&FreeSansBold18pt7b);
     const char* message = "Paused";
     const int message_w = tft.textWidth(message);
@@ -37,6 +38,7 @@ void showStartingScreen(TFT_eSPI& tft) {
 
     drawRectWithBorder(tft, box_x, center_y-box_h/2,box_w,box_h);
     tft.unloadFont();
+    tft.setTextColor(TFT_WHITE);
     tft.setFreeFont(&FreeSansBold12pt7b);
     const char* message = "Starting game...";
     const int message_w = tft.textWidth(message);

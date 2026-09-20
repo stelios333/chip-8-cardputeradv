@@ -26,5 +26,14 @@ const OptionUmap scale_map = {
     {4, "fullscreen"}
 };
 
+const OptionUmap audio_vol_map = {
+    {0x7F, "mute"},
+    {0x8F, "15%"},
+    {0x9F, "25%"},
+    {0xAF, "50%"},
+    {0xBF, "75%"},
+    {0xCF, "100%"}
+};
+
 const std::array settings_arr = {MenuOption("Shift quirk"), MenuOption("Memory quirk"), MenuOption("Turbo"), 
-                                MenuOption("Audio", 1), MenuOption("Scale", 3, 4, 1, 1, &scale_map)};
+                                MenuOption("Volume", 0xAF, 0xCF, 0x7F, 16, &audio_vol_map), MenuOption("Scale", 3, 4, 1, 1, &scale_map)};

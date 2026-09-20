@@ -530,11 +530,11 @@ int Chip8::single_cycle(bool trace_mode, bool sound_on, ToneGenerator& audio, bo
             if (sound_on) {
                 
                 if (sound_timer>0) {
-                    if (!audio.playing) {
+                    if (!audio.get_playing()) {
                         audio.play();
-                    }
+                    } 
                 } else {
-                    if (audio.playing){
+                    if (audio.get_playing()){
                         audio.stop();
                     } 
                 }

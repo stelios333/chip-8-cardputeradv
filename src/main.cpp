@@ -19,7 +19,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 const int KEYPAD_SDA = 8;
 const int KEYPAD_SCL = 9;
 const int KEYPAD_INT = 11;
-const int BUZZER_PIN = 3;
+const uint8_t BUZZER_VOL = 0x9F;
 const int BUZZER_FREQ = 440;
 const int FULLSCREEN_W = 240;
 const int FULLSCREEN_H = 120;
@@ -39,7 +39,7 @@ static uint8_t mapY[FULLSCREEN_H];
 static TFT_eSPI tft = TFT_eSPI();
 
 static Preferences prefs;
-static ToneGenerator emulator_audio(BUZZER_PIN, BUZZER_FREQ);
+static ToneGenerator emulator_audio(BUZZER_FREQ, BUZZER_VOL);
 
 std::string joinOptionAndValue(const MenuOption& option, int value, int new_str_len=MENU_OPTION_MAX_CHARACTERS) {
     std::string tmp(new_str_len, ' ');
@@ -79,6 +79,15 @@ void settingsMenu() {
             value = settings_arr.at(i).default_value;
             prefs.putInt(settings_arr.at(i).name, value);
         }
+        if (settings_arr.at(i).value_map != nullptr) {
+            if (settings_arr.at(i).value_map->find(value) == settings_arr.at(i).value_map->end()) {
+                Serial.print("WARN: The value of preference \"");
+                Serial.print(settings_arr.at(i).name);
+                Serial.println("\" is invalid and will be reset.");
+                value = settings_arr.at(i).default_value;
+                prefs.putInt(settings_arr.at(i).name, value);
+            }
+        }
         settings_vec.push_back(joinOptionAndValue(settings_arr.at(i), value));
             
     }
@@ -114,9 +123,9 @@ void settingsMenu() {
                     int prev_val = prefs.getInt(selected_option.name, selected_option.default_value);
                     int new_val;
                     if (key == '/')
-                        new_val = { prev_val < selected_option.max_value ? prev_val + 1 :  selected_option.min_value};
+                        new_val = { prev_val < selected_option.max_value ? prev_val + selected_option.step :  selected_option.min_value};
                     else
-                        new_val = { prev_val > selected_option.min_value ? prev_val - 1 : selected_option.max_value};
+                        new_val = { prev_val > selected_option.min_value ? prev_val - selected_option.step  : selected_option.max_value};
 
                     prefs.putInt(selected_option.name, new_val);
 
@@ -188,9 +197,17 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
     }
     chip8.seed_prng();
     
-    bool trace_mode = false, audio_on = prefs.getInt("Audio", 1), debug_mode = false;
+    bool trace_mode = false, debug_mode = false, audio_on = false;
     bool i_quirk = prefs.getInt("Memory quirk"), s_quirk = prefs.getInt("Shift quirk"), fast_forward = prefs.getInt("Turbo");
-    int scale = prefs.getInt("Scale", 3);
+    int scale = prefs.getInt("Scale", 3), audio_vol = prefs.getInt("Volume", 0xAF);
+
+    if (audio_vol > 0x7F)
+    {
+        audio_on = true;
+        emulator_audio.setMute(false);
+        emulator_audio.setVolume(audio_vol);
+    }
+
     bool fullscreen = scale == 4;
     
     bool screen_has_been_cleared = false;
@@ -325,6 +342,7 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
 
     }
     quit_emulator: ;
+    emulator_audio.setMute(true);
     return 0;
 }
 
@@ -338,7 +356,8 @@ constexpr void initScaleMaps() {
 void setup() {
     Serial.begin(115200);
     prefs.begin("chip-8");
-    Wire.begin(KEYPAD_SDA, KEYPAD_SCL);
+    Wire.begin(KEYPAD_SDA, KEYPAD_SCL, 400000);
+    emulator_audio.begin(&Wire);
     if (! keypad.begin(TCA8418_DEFAULT_ADDR, &Wire)) {
         Serial.println("Couldn't communicate with keypad.");
         while (1);
@@ -348,6 +367,9 @@ void setup() {
     keypad.flush();
 
     pinMode(KEYPAD_INT, INPUT_PULLUP);
+
+    
+
     tft.begin();
     tft.setRotation(1); // Landscape orientation
     tft.fillScreen(TFT_BLACK);
