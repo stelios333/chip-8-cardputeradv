@@ -60,7 +60,6 @@ std::string joinOptionAndValue(const MenuOption& option, int value, int new_str_
         auto value_str = std::to_string(value);
         tmp.replace(new_str_len-value_str.size(), value_str.size(), value_str);
     }
-    Serial.println(tmp.size());
     return tmp;
 }
 
@@ -199,7 +198,7 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
     
     bool trace_mode = false, debug_mode = false, audio_on = false;
     bool i_quirk = prefs.getInt("Memory quirk"), s_quirk = prefs.getInt("Shift quirk"), fast_forward = prefs.getInt("Turbo");
-    int scale = prefs.getInt("Scale", 3), audio_vol = prefs.getInt("Volume", 0xAF);
+    int scale = prefs.getInt("Scale", 3), audio_vol = prefs.getInt("Volume", 0xAF), audio_wf = prefs.getInt("Audio waveform", 1);
 
     if (audio_vol > 0x7F)
     {
@@ -207,6 +206,8 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
         emulator_audio.setMute(false);
         emulator_audio.setVolume(audio_vol);
     }
+
+    emulator_audio.setWaveform((Waveform) audio_wf);
 
     bool fullscreen = scale == 4;
     

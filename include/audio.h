@@ -14,6 +14,11 @@
 // the ESP32 as I2S master (3-wire mode: BCLK / LRCK / DOUT, no MCLK pin).
 //
 // ---------------------------------------------------------------------------
+enum class Waveform {
+    SINE = 1,
+    SQUARE
+};
+
 class ToneGenerator {
 public:
     // FREQ      -> initial tone frequency in Hz
@@ -30,6 +35,7 @@ public:
     void play();
     void stop();
     void setMute(bool mute);
+    void setWaveform(Waveform waveform);
     bool get_playing();
 
 private:
@@ -39,10 +45,10 @@ private:
     int _pinDsdin = 42;
     std::atomic<int> _freq;
     std::atomic<bool> _playing;
+    std::atomic<Waveform> _waveform = Waveform::SINE;
 
     uint8_t _volume;
     bool _began = false;
-
     // --- I2C config ---
     static constexpr uint8_t ES8311_ADDR = 0x18; // 7-bit address (CE pin low)
     TwoWire* _Wire = nullptr; 

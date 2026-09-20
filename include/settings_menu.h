@@ -35,5 +35,12 @@ const OptionUmap audio_vol_map = {
     {0xCF, "100%"}
 };
 
+const OptionUmap audio_wf_map = {
+    {1, "sine"},
+    {2, "square"},
+};
+
 const std::array settings_arr = {MenuOption("Shift quirk"), MenuOption("Memory quirk"), MenuOption("Turbo"), 
-                                MenuOption("Volume", 0xAF, 0xCF, 0x7F, 16, &audio_vol_map), MenuOption("Scale", 3, 4, 1, 1, &scale_map)};
+                                MenuOption("Volume", 0xAF, 0xCF, 0x7F, 16, &audio_vol_map),
+                                MenuOption("Audio waveform", 1, 2, 1, 1, &audio_wf_map),
+                                MenuOption("Scale", 3, 4, 1, 1, &scale_map)};

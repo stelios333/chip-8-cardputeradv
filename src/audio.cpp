@@ -92,7 +92,9 @@ bool ToneGenerator::get_playing() {
     return _playing.load();
 }
 
-
+void ToneGenerator::setWaveform(Waveform waveform) {
+    _waveform.store(waveform);
+}
 
 esp_err_t ToneGenerator::es8311WriteReg(uint8_t reg, uint8_t val) {
     if (_Wire == nullptr) return 1;
@@ -195,12 +197,20 @@ void ToneGenerator::audioTaskLoop() {
     while (true) {
         bool playing = _playing.load();
         int freq = _freq.load();
+        Waveform cur_waveform = _waveform.load();
 
         if (playing && freq > 0) {
+            
             const double phaseInc = 2.0 * M_PI * freq / SAMPLE_RATE;
             for (size_t i = 0; i < FRAMES_PER_BUFFER; ++i) {
-                int16_t sample =
-                    static_cast<int16_t>(sin(phase) * 32000.0); // headroom
+                int16_t sample;
+                
+                if (cur_waveform == Waveform::SINE) {
+                    sample = static_cast<int16_t>(sin(phase) * 32000.0);
+                } else if (cur_waveform == Waveform::SQUARE) {
+                    sample = static_cast<int16_t>(sin(phase) > 0.0) * 32000;
+                }
+
                 buffer[2 * i] = sample;     // left
                 buffer[2 * i + 1] = sample; // right
                 phase += phaseInc;
