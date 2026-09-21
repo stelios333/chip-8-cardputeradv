@@ -10,9 +10,9 @@ private:
     const std::vector<std::string>& m_items;
     
     const char* m_title = "Menu";
-    const uint8_t* m_title_font = RobotoMonoBold16;
-    uint8_t m_title_font_height = 16;
-    const uint8_t* m_items_font = RobotoMono16;
+    const GFXfont* m_title_font = &FreeMonoBold9pt7b;
+    uint8_t m_title_font_height = 12;
+    const GFXfont* m_items_font = &FreeMono9pt7b;
     uint8_t m_items_font_height = 16;
     uint8_t m_title_height = 18;
     int m_scroll_offset = 0;

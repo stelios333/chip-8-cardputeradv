@@ -23,7 +23,7 @@ const uint8_t BUZZER_VOL = 0x9F;
 const int BUZZER_FREQ = 440;
 const int FULLSCREEN_W = 240;
 const int FULLSCREEN_H = 120;
-const int MENU_OPTION_MAX_CHARACTERS = 25;
+const int MENU_OPTION_MAX_CHARACTERS = 22;
 const char VERSION_STRING[] = "Version           0.4-adv";
 
 static int selected_game = 0;
