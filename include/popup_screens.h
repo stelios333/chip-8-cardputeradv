@@ -1,6 +1,6 @@
 #pragma once
-#include <TFT_eSPI.h>
+#include "lgfx_conf.h"
 
-void drawRectWithBorder(TFT_eSPI& tft, int, int, int, int);
-void showPausedScreen(TFT_eSPI& tft);
-void showStartingScreen(TFT_eSPI& tft);
+void drawRectWithBorder(LGFX& tft, int, int, int, int);
+void showPausedScreen(LGFX& tft);
+void showStartingScreen(LGFX& tft);

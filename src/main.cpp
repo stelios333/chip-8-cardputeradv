@@ -9,7 +9,9 @@
 #include "popup_screens.h"
 #include "fonts.h"
 #include <Wire.h>
-#include <TFT_eSPI.h>
+#include "lgfx_conf.h"
+#include <LovyanGFX.hpp>
+
 //#include <Keypad.h>
 #include <Preferences.h>
 #include <string>
@@ -23,8 +25,8 @@ const uint8_t BUZZER_VOL = 0x9F;
 const int BUZZER_FREQ = 440;
 const int FULLSCREEN_W = 240;
 const int FULLSCREEN_H = 120;
-const int MENU_OPTION_MAX_CHARACTERS = 22;
-const char VERSION_STRING[] = "Version           0.4-adv";
+const int MENU_OPTION_MAX_CHARACTERS = 21;
+const char VERSION_STRING[] = "Version       0.5-adv";
 
 static int selected_game = 0;
 
@@ -36,7 +38,7 @@ static Adafruit_TCA8418 keypad;
 static uint8_t mapX[FULLSCREEN_W];
 static uint8_t mapY[FULLSCREEN_H];
 #endif
-static TFT_eSPI tft = TFT_eSPI();
+static LGFX tft;
 
 static Preferences prefs;
 static ToneGenerator emulator_audio(BUZZER_FREQ, BUZZER_VOL);
@@ -363,15 +365,18 @@ void setup() {
         Serial.println("Couldn't communicate with keypad.");
         while (1);
     }
-
+    
     keypad.matrix(7, 8);
     keypad.flush();
-
-    pinMode(KEYPAD_INT, INPUT_PULLUP);
-
     
+    pinMode(KEYPAD_INT, INPUT_PULLUP);
+    
+    tft.init();
 
-    tft.begin();
+    // Temporary solution to turn on backlight
+    pinMode(38, OUTPUT);
+    digitalWrite(38, HIGH);
+    
     tft.setRotation(1); // Landscape orientation
     tft.fillScreen(TFT_BLACK);
     #ifdef PRECOMPUTED_SCALE_MAP

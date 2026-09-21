@@ -1,17 +1,16 @@
 #include "tft_menu.h"
-#include <TFT_eSPI.h>
 #include <string>
 
-TFTMenu::TFTMenu(TFT_eSPI& tft, const std::vector<std::string>& items) : m_tft(tft), m_items(items)
+TFTMenu::TFTMenu(LGFX& tft, const std::vector<std::string>& items) : m_tft(tft), m_items(items)
 {
 
 }
 
 void TFTMenu::draw_title() {
     m_tft.unloadFont();
-    m_tft.setFreeFont(m_title_font);
+    m_tft.setFont(m_title_font);
     m_tft.fillRect(0,0,m_tft.width(), m_title_height, TFT_GREEN);
-    m_tft.setCursor(1,m_title_font_height);
+    m_tft.setCursor(1,1);
     m_tft.setTextColor(TFT_TRANSPARENT);
     //m_tft.setTextSize(2);
     m_tft.print(m_title);
@@ -26,7 +25,7 @@ void TFTMenu::set_title(const char* new_title) {
 void TFTMenu::draw()
 {    
     m_tft.unloadFont();
-    m_tft.setFreeFont(m_items_font);
+    m_tft.setFont(m_items_font);
     int max_chars = (m_tft.width()-1)/m_tft.textWidth("m");
     int y_offset = m_title_height;
     const int max_lines = (m_tft.height()-y_offset)/m_items_font_height;

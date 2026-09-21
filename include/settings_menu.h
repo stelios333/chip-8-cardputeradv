@@ -36,8 +36,8 @@ const OptionUmap audio_vol_map = {
 };
 
 const OptionUmap audio_wf_map = {
-    {1, "sine"},
-    {2, "square"},
+    {1, "sin"},
+    {2, "sqr"},
 };
 
 const std::array settings_arr = {MenuOption("Shift quirk"), MenuOption("Memory quirk"), MenuOption("Turbo"), 

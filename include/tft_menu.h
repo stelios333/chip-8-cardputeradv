@@ -1,12 +1,12 @@
 #pragma once
 #include <vector>
-#include <TFT_eSPI.h>
+#include "lgfx_conf.h"
 #include <string>
 #include "fonts.h"
 class TFTMenu
 {
 private:
-    TFT_eSPI& m_tft;
+    LGFX& m_tft;
     const std::vector<std::string>& m_items;
     
     const char* m_title = "Menu";
@@ -18,7 +18,7 @@ private:
     int m_scroll_offset = 0;
 
 public:
-    TFTMenu(TFT_eSPI& tft, const std::vector<std::string>& items);
+    TFTMenu(LGFX& tft, const std::vector<std::string>& items);
     void draw();
     void draw_title();
     void set_title(const char* new_title);
