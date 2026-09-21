@@ -323,7 +323,7 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
 
             }
 
-            tft.pushImage(x_offset, y_offset, fb_w, fb_h, framebuffer);
+            tft.pushImageDMA(x_offset, y_offset, fb_w, fb_h, framebuffer);
         
         }
 
@@ -372,11 +372,8 @@ void setup() {
     pinMode(KEYPAD_INT, INPUT_PULLUP);
     
     tft.init();
-
-    // Temporary solution to turn on backlight
-    pinMode(38, OUTPUT);
-    digitalWrite(38, HIGH);
-    
+    tft.initDMA();
+    tft.setBrightness(255);
     tft.setRotation(1); // Landscape orientation
     tft.fillScreen(TFT_BLACK);
     #ifdef PRECOMPUTED_SCALE_MAP

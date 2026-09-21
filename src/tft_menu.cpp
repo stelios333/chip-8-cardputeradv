@@ -9,11 +9,13 @@ TFTMenu::TFTMenu(LGFX& tft, const std::vector<std::string>& items) : m_tft(tft),
 void TFTMenu::draw_title() {
     m_tft.unloadFont();
     m_tft.setFont(m_title_font);
+    m_tft.startWrite();
     m_tft.fillRect(0,0,m_tft.width(), m_title_height, TFT_GREEN);
-    m_tft.setCursor(1,1);
+    m_tft.setCursor(1,0);
     m_tft.setTextColor(TFT_TRANSPARENT);
     //m_tft.setTextSize(2);
     m_tft.print(m_title);
+    m_tft.endWrite();
 }
 
 void TFTMenu::set_title(const char* new_title) {

@@ -5,7 +5,7 @@ class LGFX : public lgfx::LGFX_Device
 private:
 lgfx::Panel_ST7789 _panel_instance;
 lgfx::Bus_SPI _bus_instance;
-//lgfx::Light_PWM     _light_instance;
+lgfx::Light_PWM     _light_instance;
 public:
   LGFX(void)
   {
@@ -15,7 +15,7 @@ public:
       cfg.spi_host = SPI2_HOST;
       cfg.spi_mode = 0;
       cfg.freq_write = 40000000;
-      cfg.freq_read  = 16000000;
+      cfg.freq_read  = 20000000;
       cfg.spi_3wire = true;
       cfg.use_lock = true;
       cfg.dma_channel = SPI_DMA_CH_AUTO;
@@ -51,7 +51,7 @@ public:
 
       _panel_instance.config(cfg);
     }
-    /*
+    
     // Couldn't get the backlight working through pwm
     {
       auto cfg = _light_instance.config();
@@ -63,7 +63,7 @@ public:
         _light_instance.config(cfg);
         _panel_instance.setLight(&_light_instance);
     }
-    */
+    
     setPanel(&_panel_instance);
     
   }
