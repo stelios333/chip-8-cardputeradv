@@ -1,6 +1,7 @@
 #pragma once
 #include <unordered_map>
 #include <cstdint>
+#include <Adafruit_TCA8418.h>
 
 // Cardputer keymap copied from https://github.com/bmorcelli/Launcher/blob/main/lib/Keyboard/Keyboard.h
 
@@ -36,6 +37,14 @@ inline void mapRawKeyToPhysical(uint8_t event, uint8_t &row, uint8_t &col) {
         col = 0xFF;
     }
 }
+
+typedef struct 
+{
+ bool pressed;
+ int row, col;
+} KeypadEvent;
+
+KeypadEvent HandleKeypadInput(Adafruit_TCA8418& keypad, volatile bool& TCA8418_event);
 
 const KeyValue_t CARDPUTER_KEYMAP[KEYPAD_COLS][KEYPAD_ROWS] = {
     {{'`', '~'},

@@ -21,12 +21,15 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 const int KEYPAD_SDA = 8;
 const int KEYPAD_SCL = 9;
 const int KEYPAD_INT = 11;
+volatile bool TCA8418_event = false;
+
+
 const uint8_t BUZZER_VOL = 0x9F;
 const int BUZZER_FREQ = 440;
 const int FULLSCREEN_W = 240;
 const int FULLSCREEN_H = 120;
 const int MENU_OPTION_MAX_CHARACTERS = 21;
-const char VERSION_STRING[] = "Version       0.5-adv";
+const char VERSION_STRING[] = "Version       0.6-adv";
 
 static int selected_game = 0;
 
@@ -42,6 +45,10 @@ static LGFX tft;
 
 static Preferences prefs;
 static ToneGenerator emulator_audio(BUZZER_FREQ, BUZZER_VOL);
+
+void KeypadIRQ() {
+  TCA8418_event = true;
+}
 
 std::string joinOptionAndValue(const MenuOption& option, int value, int new_str_len=MENU_OPTION_MAX_CHARACTERS) {
     std::string tmp(new_str_len, ' ');
@@ -98,15 +105,11 @@ void settingsMenu() {
     settings_menu.draw_title();
     settings_menu.draw();
     while (true) {
-        if (keypad.available() > 0) {
-            int event = keypad.getEvent();
-            bool pressed = event & 0x80;
-            event &= 0x7F;
-            uint8_t row, col;
-            mapRawKeyToPhysical(event, row, col);
+        if (TCA8418_event) {
+            KeypadEvent event = HandleKeypadInput(keypad, TCA8418_event);
             //Serial.printf("Key event: raw=%d, pressed=%d, row=%d, col=%d\n", event, pressed, row, col);
-            char key = CARDPUTER_KEYMAP[col][row].value_first;
-            if (pressed) {
+            char key = CARDPUTER_KEYMAP[event.col][event.row].value_first;
+            if (event.pressed) {
                 if(key == '.') {
                     if (settings_menu.m_selected < settings_vec.size()-1) {++settings_menu.m_selected;}
                     else {settings_menu.m_selected = 0;}
@@ -134,7 +137,7 @@ void settingsMenu() {
 
                     settings_menu.draw();
                 }
-                else if (key == '`') {
+                else if (key == '`' || key == 's') {
                     break;
                 }
             }
@@ -152,15 +155,11 @@ int gameSelectionMenu(int default_game = 0) {
     tft_menu.draw();
     
     while (true) {
-        if (keypad.available() > 0) {
-            int event = keypad.getEvent();
-            bool pressed = event & 0x80;
-            event &= 0x7F;
-            uint8_t row, col;
-            mapRawKeyToPhysical(event, row, col);
+        if (TCA8418_event) {
+            KeypadEvent event = HandleKeypadInput(keypad, TCA8418_event);
             //Serial.printf("Key event: raw=%d, pressed=%d, row=%d, col=%d\n", event, pressed, row, col);
-            char key = CARDPUTER_KEYMAP[col][row].value_first;
-            if (pressed) {
+            char key = CARDPUTER_KEYMAP[event.col][event.row].value_first;
+            if (event.pressed) {
                 if(key == '.') {
                     if (tft_menu.m_selected < ROM_NAMES.size()-1) {++tft_menu.m_selected;}
                     else {tft_menu.m_selected = 0;}
@@ -235,18 +234,13 @@ int startEmulator(const uint8_t* rom_data, const ulong rom_size)
             return 1;
         }
         
-        if (keypad.available()&&iter_count%4) {
-            // TODO: Interrupt-based event handling
-            int event = keypad.getEvent();
-            bool pressed = event & 0x80;
-            event &= 0x7F;
-            uint8_t row, col;
-            mapRawKeyToPhysical(event, row, col);
+        if (TCA8418_event) {
+            KeypadEvent event = HandleKeypadInput(keypad, TCA8418_event);
             //Serial.printf("Key event: raw=%d, pressed=%d, row=%d, col=%d\n", event, pressed, row, col);
-            char key = CARDPUTER_KEYMAP[col][row].value_first;
+            char key = CARDPUTER_KEYMAP[event.col][event.row].value_first;
 
             
-            if (pressed) {
+            if (event.pressed) {
                 
 
                 if (key == 'p') {
@@ -370,7 +364,9 @@ void setup() {
     keypad.flush();
     
     pinMode(KEYPAD_INT, INPUT_PULLUP);
-    
+    attachInterrupt(digitalPinToInterrupt(KEYPAD_INT), KeypadIRQ, CHANGE);
+    keypad.enableInterrupts();
+
     tft.init();
     tft.initDMA();
     tft.setBrightness(255);
