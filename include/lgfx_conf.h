@@ -5,10 +5,11 @@ class LGFX : public lgfx::LGFX_Device
 private:
 lgfx::Panel_ST7789 _panel_instance;
 lgfx::Bus_SPI _bus_instance;
-lgfx::Light_PWM     _light_instance;
 public:
   LGFX(void)
   {
+    lgfx::gpio_hi(GPIO_NUM_38);
+    lgfx::pinMode(GPIO_NUM_38, lgfx::v1::pin_mode_t::output);
     {
       auto cfg = _bus_instance.config();
 
@@ -52,17 +53,7 @@ public:
       _panel_instance.config(cfg);
     }
     
-    // Couldn't get the backlight working through pwm
-    {
-      auto cfg = _light_instance.config();
-        cfg.pin_bl      = 38;
-        cfg.invert      = false;
-        
-        cfg.freq        = 44100;
-        cfg.pwm_channel = 7;
-        _light_instance.config(cfg);
-        _panel_instance.setLight(&_light_instance);
-    }
+
     
     setPanel(&_panel_instance);
     

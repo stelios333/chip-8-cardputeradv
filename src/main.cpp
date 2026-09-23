@@ -369,7 +369,7 @@ void setup() {
 
     tft.init();
     tft.initDMA();
-    tft.setBrightness(255);
+    
     tft.setRotation(1); // Landscape orientation
     tft.fillScreen(TFT_BLACK);
     #ifdef PRECOMPUTED_SCALE_MAP
